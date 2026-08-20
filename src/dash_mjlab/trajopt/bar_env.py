@@ -34,9 +34,13 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, Literal
 
 import mujoco
 import numpy as np
+
+if TYPE_CHECKING:
+  from mjviser import ViserMujocoScene
 
 from dash_mjlab.robots.dash_upper_body_constants import (
   ARMS_READY_KEYFRAME,
@@ -200,6 +204,9 @@ class BarAngleTrajOptEnv:
     self._active_spawn = spawn(ACTIVE_JOINTS)
     self._passive_spawn = spawn(_PASSIVE_JOINTS)
     self._ghost_mocap_id = self.model.body("target_ghost").mocapid[0]
+    # Lazily created on the first render and reused after, so repeated
+    # rendered evaluations stream into the same browser tab.
+    self._viser_scene: ViserMujocoScene | None = None
 
   @property
   def num_steps(self) -> int:
@@ -225,6 +232,17 @@ class BarAngleTrajOptEnv:
     ]
     mujoco.mj_forward(self.model, self.data)
 
+  def _get_viser_scene(self) -> ViserMujocoScene:
+    if self._viser_scene is None:
+      import viser
+      from mjviser import ViserMujocoScene
+
+      # The server announces its own URL (default http://localhost:8080) and
+      # stays up for the lifetime of this env instance.
+      server = viser.ViserServer(label="dash-bar-trajopt")
+      self._viser_scene = ViserMujocoScene(server, self.model, num_envs=1)
+    return self._viser_scene
+
   def evaluate(
     self,
     joint_trajectories: Sequence[JointTrajectory],
@@ -232,6 +250,7 @@ class BarAngleTrajOptEnv:
     *,
     return_trajectory: bool = False,
     render: bool = False,
+    render_backend: Literal["viser", "native"] = "viser",
   ) -> float | tuple[float, dict[str, np.ndarray]]:
     """Roll out the four joint trajectories and return the terminal cost.
 
@@ -243,8 +262,12 @@ class BarAngleTrajOptEnv:
       return_trajectory: also return the full rollout -- keys ``time``,
         ``bar_angle``, ``joint_pos``, ``joint_target`` -- for debugging a
         candidate. Off by default so the search loop pays nothing for it.
-      render: open a viewer and play the rollout at real time. For watching
-        single candidates, not for use inside a search loop.
+      render: play the rollout at real time in a viewer. For watching single
+        candidates, not for use inside a search loop.
+      render_backend: ``"viser"`` (default) serves the scene to the browser --
+        the server starts on the first rendered call, prints its URL, and is
+        reused by later calls, so keep the process alive while watching.
+        ``"native"`` opens a MuJoCo window instead (needs a local display).
 
     Returns:
       The cost: |shortest angular distance between target and final bar
@@ -267,10 +290,17 @@ class BarAngleTrajOptEnv:
     joint_target = np.empty((n, 4))
 
     viewer = None
+    scene = None
     if render:
-      from mujoco import viewer as mujoco_viewer
+      if render_backend == "viser":
+        scene = self._get_viser_scene()
+        scene.update_from_mjdata(self.data)
+      elif render_backend == "native":
+        from mujoco import viewer as mujoco_viewer
 
-      viewer = mujoco_viewer.launch_passive(self.model, self.data)
+        viewer = mujoco_viewer.launch_passive(self.model, self.data)
+      else:
+        raise ValueError(f"Unknown render_backend: {render_backend!r}")
 
     try:
       for k in range(n):
@@ -298,11 +328,19 @@ class BarAngleTrajOptEnv:
         bar_angles[k] = self.bar_angle()
         joint_pos[k] = self.data.qpos[self._active_qadr]
         joint_target[k] = desired
-        if viewer is not None:
+        if scene is not None:
+          # ~66 Hz scene sync is enough for the browser; the sleep paces the
+          # whole rollout to real time.
+          if k % 3 == 0:
+            scene.update_from_mjdata(self.data)
+          time.sleep(self.timestep)
+        elif viewer is not None:
           if not viewer.is_running():
             break
           viewer.sync()
           time.sleep(self.timestep)
+      if scene is not None:
+        scene.update_from_mjdata(self.data)  # Show the final settled state.
     finally:
       if viewer is not None:
         viewer.close()

@@ -56,7 +56,15 @@ def make_two_phase_push():
 def main() -> None:
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument(
-    "--render", action="store_true", help="Watch the rollout in a viewer."
+    "--render",
+    action="store_true",
+    help="Watch the rollout in the browser (viser).",
+  )
+  parser.add_argument(
+    "--backend",
+    choices=("viser", "native"),
+    default="viser",
+    help="Viewer to use with --render: browser (viser) or a MuJoCo window.",
   )
   args = parser.parse_args()
 
@@ -66,8 +74,17 @@ def main() -> None:
   print(f"target angle: {TARGET_ANGLE} rad")
   print(f"hold-spawn-pose cost: {env.evaluate(hold, TARGET_ANGLE):.4f} rad")
 
-  cost = env.evaluate(make_two_phase_push(), TARGET_ANGLE, render=args.render)
+  cost = env.evaluate(
+    make_two_phase_push(),
+    TARGET_ANGLE,
+    render=args.render,
+    render_backend=args.backend,
+  )
   print(f"two-phase push cost:  {cost:.4f} rad")
+
+  if args.render and args.backend == "viser":
+    # The viser server dies with the process; hold it open for inspection.
+    input("Viewer is live in the browser -- press Enter to exit. ")
 
 
 if __name__ == "__main__":

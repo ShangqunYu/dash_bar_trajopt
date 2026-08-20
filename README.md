@@ -58,13 +58,18 @@ cost, traj = env.evaluate(fns, target_angle=0.6, return_trajectory=True)
 cost = env.evaluate(fns, target_angle=0.6, render=True)   # watch it live
 ```
 
-In the viewer, the translucent green bar shows the commanded target angle.
+Rendering is browser-based (viser): the first rendered call starts a local
+server and prints its URL (default `http://localhost:8080`); open it in a
+browser and later rendered calls stream into the same page. This also works
+over SSH with port forwarding. Pass `render_backend="native"` for a classic
+MuJoCo window instead. In either viewer, the translucent green bar shows the
+commanded target angle.
 
 ## Example
 
 ```bash
 uv run python -m dash_mjlab.trajopt.example            # print costs
-uv run python -m dash_mjlab.trajopt.example --render   # watch the rollout
+uv run python -m dash_mjlab.trajopt.example --render   # watch it in the browser
 ```
 
 The example rolls out a two-phase push (reach in past the bar, then sweep
