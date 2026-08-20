@@ -34,7 +34,7 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import mujoco
 import numpy as np
@@ -392,12 +392,12 @@ class BarAngleTrajOptEnv:
           time.sleep(self.timestep)
       if scene is not None:
         scene.update_from_mjdata(self.data)  # Show the final settled state.
-      if renderer is not None:
+      if renderer is not None and video_path is not None:
         # imageio over mediapy: it ships its own ffmpeg binary, so writing
         # works on machines with no system ffmpeg installed.
         import imageio
 
-        imageio.mimwrite(video_path, frames, fps=video_fps)
+        imageio.mimwrite(video_path, cast("list[Any]", frames), fps=video_fps)
     finally:
       if viewer is not None:
         viewer.close()
