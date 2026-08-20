@@ -56,7 +56,12 @@ cost, traj = env.evaluate(fns, target_angle=0.6, return_trajectory=True)
 # traj["time"], traj["bar_angle"], traj["joint_pos"], traj["joint_target"]
 
 cost = env.evaluate(fns, target_angle=0.6, render=True)   # watch it live
+
+cost = env.evaluate(fns, target_angle=0.6, video_path="push.mp4")  # save video
 ```
+
+Video capture is offscreen (no window, works headless and at full speed);
+`video_fps` and `video_size` are also accepted.
 
 Rendering is browser-based (viser): the first rendered call starts a local
 server and prints its URL (default `http://localhost:8080`). The rollout
@@ -70,7 +75,8 @@ commanded target angle.
 
 ```bash
 uv run python -m dash_mjlab.trajopt.example            # print costs
-uv run python -m dash_mjlab.trajopt.example --render   # watch it in the browser
+uv run python -m dash_mjlab.trajopt.example --render           # watch in browser
+uv run python -m dash_mjlab.trajopt.example --video push.mp4   # save a video
 ```
 
 The example rolls out a two-phase push (reach in past the bar, then sweep

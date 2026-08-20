@@ -66,6 +66,11 @@ def main() -> None:
     default="viser",
     help="Viewer to use with --render: browser (viser) or a MuJoCo window.",
   )
+  parser.add_argument(
+    "--video",
+    metavar="PATH",
+    help="Save the push rollout as a video (e.g. --video push.mp4).",
+  )
   args = parser.parse_args()
 
   env = BarAngleTrajOptEnv()
@@ -79,8 +84,11 @@ def main() -> None:
     TARGET_ANGLE,
     render=args.render,
     render_backend=args.backend,
+    video_path=args.video,
   )
   print(f"two-phase push cost:  {cost:.4f} rad")
+  if args.video:
+    print(f"video saved to {args.video}")
 
   if args.render and args.backend == "viser":
     # The viser server dies with the process; hold it open for inspection.

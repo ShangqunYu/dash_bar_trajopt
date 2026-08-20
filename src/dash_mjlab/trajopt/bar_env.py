@@ -139,6 +139,30 @@ def _build_model(timestep: float) -> mujoco.MjModel:
     size=[0.0, 0.0, 0.05],
     rgba=(0.35, 0.38, 0.40, 1.0),
   )
+  # Lighting: the compiled spec would otherwise only have the dim default
+  # headlight, which renders video frames nearly black. One overhead light
+  # with shadows for depth, one fill from the camera side.
+  spec.worldbody.add_light(
+    name="overhead",
+    pos=[0.3, 0.0, 2.5],
+    dir=[0.0, 0.0, -1.0],
+    castshadow=True,
+  )
+  spec.worldbody.add_light(
+    name="fill",
+    pos=[1.5, -1.0, 1.5],
+    dir=[-0.6, 0.45, -0.4],
+    castshadow=False,
+  )
+  # Camera for offscreen video capture: from the robot's front-right, kept
+  # aimed at the torso, which puts both the arm and the whole bar arc in
+  # frame.
+  spec.worldbody.add_camera(
+    name="video",
+    mode=mujoco.mjtCamLight.mjCAMLIGHT_TARGETBODY,
+    targetbody="torso",
+    pos=[1.5, -1.1, 1.3],
+  )
   return spec.compile()
 
 
@@ -251,6 +275,9 @@ class BarAngleTrajOptEnv:
     return_trajectory: bool = False,
     render: bool = False,
     render_backend: Literal["viser", "native"] = "viser",
+    video_path: str | None = None,
+    video_fps: int = 30,
+    video_size: tuple[int, int] = (480, 640),
   ) -> float | tuple[float, dict[str, np.ndarray]]:
     """Roll out the four joint trajectories and return the terminal cost.
 
@@ -270,6 +297,11 @@ class BarAngleTrajOptEnv:
         browser is connected yet, the rollout waits for one so the animation
         is not played into an empty room. ``"native"`` opens a MuJoCo window
         instead (needs a local display).
+      video_path: if set, record the rollout offscreen to this file (e.g.
+        ``"push.mp4"``). Independent of ``render``, runs at full speed, and
+        works headless. Frames come from the built-in "video" camera.
+      video_fps: frame rate of the written video.
+      video_size: (height, width) of the written video.
 
     Returns:
       The cost: |shortest angular distance between target and final bar
@@ -313,6 +345,11 @@ class BarAngleTrajOptEnv:
       else:
         raise ValueError(f"Unknown render_backend: {render_backend!r}")
 
+    renderer = None
+    frames: list[np.ndarray] = []
+    if video_path is not None:
+      renderer = mujoco.Renderer(self.model, height=video_size[0], width=video_size[1])
+
     try:
       for k in range(n):
         t = k * self.timestep
@@ -339,6 +376,9 @@ class BarAngleTrajOptEnv:
         bar_angles[k] = self.bar_angle()
         joint_pos[k] = self.data.qpos[self._active_qadr]
         joint_target[k] = desired
+        if renderer is not None and t >= len(frames) / video_fps:
+          renderer.update_scene(self.data, camera="video")
+          frames.append(renderer.render())
         if scene is not None:
           # ~66 Hz scene sync is enough for the browser; the sleep paces the
           # whole rollout to real time.
@@ -352,9 +392,17 @@ class BarAngleTrajOptEnv:
           time.sleep(self.timestep)
       if scene is not None:
         scene.update_from_mjdata(self.data)  # Show the final settled state.
+      if renderer is not None:
+        # imageio over mediapy: it ships its own ffmpeg binary, so writing
+        # works on machines with no system ffmpeg installed.
+        import imageio
+
+        imageio.mimwrite(video_path, frames, fps=video_fps)
     finally:
       if viewer is not None:
         viewer.close()
+      if renderer is not None:
+        renderer.close()
 
     cost = abs(_wrap_to_pi(target_angle - self.bar_angle()))
     if return_trajectory:
