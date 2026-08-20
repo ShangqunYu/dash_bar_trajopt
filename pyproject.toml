@@ -1,0 +1,83 @@
+[build-system]
+requires = ["uv_build>=0.8.19,<0.9.0"]
+build-backend = "uv_build"
+
+[project]
+name = "dash_mjlab"
+version = "0.1.0"
+description = "Dash humanoid robot tasks for mjlab."
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.10,<3.14"
+dependencies = [
+  "mjlab @ git+https://github.com/mujocolab/mjlab@v1.5.3",
+]
+
+[project.scripts]
+dash-train = "dash_mjlab.scripts.train:main"
+dash-play = "dash_mjlab.scripts.play:main"
+dash-list-envs = "dash_mjlab.scripts.list_envs:main"
+dash-export-scene = "dash_mjlab.scripts.export_scene:main"
+dash-csv-to-npz = "dash_mjlab.scripts.csv_to_npz:entry"
+dash-amass-to-csv = "dash_mjlab.scripts.amass_to_csv:entry"
+dash-view-motion = "dash_mjlab.scripts.view_motion:entry"
+
+[dependency-groups]
+dev = [
+  "pyright>=1.1.408",
+  "pytest>=8.0.0",
+  "ruff>=0.14.0",
+]
+
+# mjlab publishes torch through explicit indices; mirror them so `uv sync`
+# resolves the same wheels rather than falling back to the default PyPI build.
+[project.optional-dependencies]
+cu128 = ["torch>=2.7.0"]
+cpu = ["torch>=2.7.0"]
+
+[tool.uv]
+conflicts = [
+  [{ extra = "cu128" }, { extra = "cpu" }],
+]
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com/"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+warp-lang = { index = "nvidia", marker = "sys_platform != 'darwin'" }
+torch = [
+  { index = "pytorch-cu128", extra = "cu128", marker = "sys_platform != 'darwin'" },
+  { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform != 'darwin'" },
+]
+
+[tool.ruff]
+src = ["src"]
+indent-width = 2
+exclude = ["typings"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B"]
+
+[tool.pyright]
+pythonVersion = "3.10"
+venvPath = "."
+venv = ".venv"
+# MuJoCo's native bindings ship no type information. These stubs are generated
+# from the installed mujoco (see typings/generate_mujoco_stubs.sh), same as
+# upstream mjlab does.
+stubPath = "typings"
+ignore = ["./typings"]

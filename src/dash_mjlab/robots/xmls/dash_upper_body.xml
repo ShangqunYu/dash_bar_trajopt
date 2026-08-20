@@ -1,0 +1,124 @@
+<mujoco model="dash_upper_body">
+  <!--
+    Upper-body-only Dash: torso plus both arms, 8 DOF (shoulder pitch/roll/yaw
+    and elbow pitch, per arm). No legs and no hip joints at all -- the leg
+    kinematic chains are deleted rather than actuator-disabled, so they cost
+    nothing in qpos, contacts or observations.
+
+    The torso carries no freejoint, which makes this a fixed-base entity. mjlab
+    wraps fixed-base entities in a mocap body automatically
+    (mjlab.utils.spec.auto_wrap_fixed_base_mocap), so the torso is still placed
+    per-environment by a `reset_root_state_uniform` reset event. The pedestal
+    that visually connects the torso to the floor is added in `get_spec` from
+    TORSO_MOUNT_HEIGHT so the two can't drift apart.
+
+    Differences from dash.xml beyond the deletions:
+      - `actuatorfrcrange` is dropped from every joint. In dash.xml it is a
+        placeholder 10 Nm inherited from the URDF that MuJoCo applies on top of
+        the actuator forcerange, so dash_constants has to clear it at load time.
+        Leaving it out makes effort_limit the single source of truth directly.
+      - `l_hand` / `r_hand` sites on the inner surface of each forearm's
+        rounded end. Dash has no hands or grippers, so a box is carried by
+        squeezing it between the two forearm tips -- the capsule end caps are
+        spheres of radius 0.03, so this is a two-point grip on a ball. The
+        forearm colliders therefore have to carry grip friction (see
+        HAND_COLLISION); on the full robot the same capsules are frictionless
+        so that grazing self-contacts do not fight the gait, which is the
+        opposite of what this task needs.
+      - The locomotion sensor block is gone (no base to estimate the state of).
+        The IMU site is kept so a future sensor can be attached in the same
+        place as on the full robot.
+  -->
+  <compiler angle="radian" meshdir="assets" autolimits="true"/>
+
+  <default>
+    <default class="dash">
+      <default class="visual">
+        <geom type="mesh" group="2" contype="0" conaffinity="0" density="0"/>
+      </default>
+      <default class="collision">
+        <geom group="3" contype="1" conaffinity="1" density="0"/>
+      </default>
+    </default>
+  </default>
+
+  <asset>
+    <mesh name="Torso" file="Torso.stl"/>
+    <mesh name="R_prox_shoulder" file="R_prox_shoulder.stl"/>
+    <mesh name="R_dist_shoulder" file="R_dist_shoulder.stl"/>
+    <mesh name="R_upper_arm" file="R_upper_arm.stl"/>
+    <mesh name="R_lower_arm" file="R_lower_arm.stl"/>
+    <mesh name="L_prox_shoulder" file="L_prox_shoulder.stl"/>
+    <mesh name="L_dist_shoulder" file="L_dist_shoulder.stl"/>
+    <mesh name="L_upper_arm" file="L_upper_arm.stl"/>
+    <mesh name="L_lower_arm" file="L_lower_arm.stl"/>
+  </asset>
+
+  <worldbody>
+    <body name="torso" childclass="dash">
+      <!-- Torso inertial from dash.xml. The legs' mass is simply gone: this
+           model weighs ~16.8 kg against the full robot's ~34.1 kg. Nothing in
+           a fixed-base manipulation task depends on the total, but do not reuse
+           these numbers for anything that reasons about the whole robot. -->
+      <inertial pos="0.00593411 -3.00183e-05 0.163011" quat="0.99966 -6.30433e-05 0.0260827 -0.000344135" mass="10.8104" diaginertia="0.203306 0.165966 0.0687363"/>
+      <geom class="visual" name="torso_visual" rgba="0.723666 0.709829 0.56081 1" mesh="Torso"/>
+      <geom class="collision" name="torso_collision" type="box" pos="0 0 0.17" size="0.08 0.13 0.19"/>
+
+      <site name="imu_in_torso" size="0.01" pos="0.006 -0.085 0.19"/>
+
+      <body name="r_prox_shoulder" pos="0.020796 -0.1117 0.3">
+        <inertial pos="-0.0638541 -0.0594545 -8.464e-05" quat="0.68734 0.692062 -0.155178 -0.156633" mass="1.26433" diaginertia="0.00271013 0.00210315 0.0017068"/>
+        <joint name="r_shoulder_pitch" axis="0 1 0" range="-0.6 1.1"/>
+        <geom class="visual" name="r_prox_shoulder_visual" rgba="0.819914 0.51932 0.162864 1" mesh="R_prox_shoulder"/>
+        <body name="r_dist_shoulder" pos="-0.05 -0.0713 0">
+          <inertial pos="0.0551627 -0.0110152 0.0187494" quat="0.0956691 0.63929 -0.0866565 0.758054" mass="1.02859" diaginertia="0.00166989 0.00125774 0.00103113"/>
+          <joint name="r_shoulder_roll" axis="1 0 0" range="-0.6 0.3"/>
+          <geom class="visual" name="r_dist_shoulder_visual" rgba="0.954951 0.592636 0.169477 1" mesh="R_dist_shoulder"/>
+          <body name="r_upper_arm" pos="0.0605 -0.012 0.002">
+            <inertial pos="-2.136e-07 -0.00212635 -0.156389" quat="0.707066 -0.00754832 0.00754832 0.707066" mass="1.50071" diaginertia="0.00970874 0.00919509 0.00162113"/>
+            <joint name="r_shoulder_yaw" axis="0 0 1" range="-0.8 0.8"/>
+            <geom class="visual" name="r_upper_arm_visual" rgba="0.654942 0.465554 0.304724 1" mesh="R_upper_arm"/>
+            <geom class="collision" name="r_upper_arm_collision" type="capsule" fromto="0 0 -0.03 0 -0.02 -0.185" size="0.042"/>
+            <body name="r_lower_arm" pos="0 -0.023775 -0.2025" quat="0.968912 0 -0.247404 0">
+              <inertial pos="-3e-08 0.0082445 -0.103214" quat="0.997346 0.0728135 0 0" mass="0.339126" diaginertia="0.00278269 0.00278265 0.000126918"/>
+              <joint name="r_elbow_pitch" axis="0 1 0" range="-1.5 0"/>
+              <geom class="visual" name="r_lower_arm_visual" rgba="0.954585 0.75822 0.229953 1" mesh="R_lower_arm"/>
+              <geom class="collision" name="r_lower_arm_collision" type="capsule" fromto="0 0.008 -0.015 0 0.008 -0.25" size="0.03"/>
+              <!-- The forearm capsule's rounded end IS the hand: the cap is a
+                   sphere of radius 0.03 centred at z=-0.25. The site sits on its
+                   inner surface, facing the midline. -->
+              <site name="r_hand" pos="0 0.038 -0.25" size="0.006" rgba="1 0 0 1"/>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <body name="l_prox_shoulder" pos="0.020796 0.112 0.3">
+        <inertial pos="-0.0638541 0.0594541 -8.46e-05" quat="0.692069 0.687332 0.15663 0.155183" mass="1.26433" diaginertia="0.0027101 0.00210313 0.00170681"/>
+        <joint name="l_shoulder_pitch" axis="0 1 0" range="-0.6 1.1"/>
+        <geom class="visual" name="l_prox_shoulder_visual" rgba="0.819914 0.51932 0.162864 1" mesh="L_prox_shoulder"/>
+        <body name="l_dist_shoulder" pos="-0.05 0.0713 0">
+          <inertial pos="0.0551627 0.0108105 0.0187494" quat="-0.0885499 0.639868 0.0872463 0.758364" mass="1.02859" diaginertia="0.00166915 0.00125704 0.00103166"/>
+          <joint name="l_shoulder_roll" axis="1 0 0" range="-0.3 0.6"/>
+          <geom class="visual" name="l_dist_shoulder_visual" rgba="0.954951 0.592636 0.169477 1" mesh="L_dist_shoulder"/>
+          <body name="l_upper_arm" pos="0.0605 0.012 0.002">
+            <inertial pos="-2.027e-07 0.00212635 -0.156249" quat="0.707064 0.00774823 -0.00774636 0.707064" mass="1.50071" diaginertia="0.00968948 0.00917565 0.00162095"/>
+            <joint name="l_shoulder_yaw" axis="0 0 1" range="-0.8 0.8"/>
+            <geom class="visual" name="l_upper_arm_visual" rgba="0.654942 0.465554 0.304724 1" mesh="L_upper_arm"/>
+            <geom class="collision" name="l_upper_arm_collision" type="capsule" fromto="0 0 -0.03 0 0.02 -0.185" size="0.042"/>
+            <body name="l_lower_arm" pos="0 0.023775 -0.2025" quat="0.968912 0 -0.247404 0">
+              <inertial pos="-3e-08 0.0082445 -0.103214" quat="0.997346 -0.0728135 0 0" mass="0.339126" diaginertia="0.00278269 0.00278265 0.000126918"/>
+              <joint name="l_elbow_pitch" axis="0 1 0" range="-1.5 0"/>
+              <geom class="visual" name="l_lower_arm_visual" rgba="0.954585 0.75822 0.229953 1" mesh="L_lower_arm"/>
+              <geom class="collision" name="l_lower_arm_collision" type="capsule" fromto="0 0.008 -0.015 0 0.008 -0.25" size="0.03"/>
+              <!-- The forearm capsule's rounded end IS the hand: the cap is a
+                   sphere of radius 0.03 centred at z=-0.25. The site sits on its
+                   inner surface, facing the midline. -->
+              <site name="l_hand" pos="0 -0.038 -0.25" size="0.006" rgba="1 0 0 1"/>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

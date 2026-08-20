@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+
+# Training artifacts.
+logs/
+outputs/
+wandb/
+export/
+*.pt
+*.onnx
+
+motions/
+*.csv
+*.npz
+MUJOCO_LOG.TXT
