@@ -59,8 +59,9 @@ cost = env.evaluate(fns, target_angle=0.6, render=True)   # watch it live
 ```
 
 Rendering is browser-based (viser): the first rendered call starts a local
-server and prints its URL (default `http://localhost:8080`); open it in a
-browser and later rendered calls stream into the same page. This also works
+server and prints its URL (default `http://localhost:8080`). The rollout
+waits until a browser is connected before it starts playing; later rendered
+calls stream into the same page. This also works
 over SSH with port forwarding. Pass `render_backend="native"` for a classic
 MuJoCo window instead. In either viewer, the translucent green bar shows the
 commanded target angle.

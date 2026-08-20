@@ -266,8 +266,10 @@ class BarAngleTrajOptEnv:
         candidates, not for use inside a search loop.
       render_backend: ``"viser"`` (default) serves the scene to the browser --
         the server starts on the first rendered call, prints its URL, and is
-        reused by later calls, so keep the process alive while watching.
-        ``"native"`` opens a MuJoCo window instead (needs a local display).
+        reused by later calls, so keep the process alive while watching. If no
+        browser is connected yet, the rollout waits for one so the animation
+        is not played into an empty room. ``"native"`` opens a MuJoCo window
+        instead (needs a local display).
 
     Returns:
       The cost: |shortest angular distance between target and final bar
@@ -294,6 +296,15 @@ class BarAngleTrajOptEnv:
     if render:
       if render_backend == "viser":
         scene = self._get_viser_scene()
+        # Don't roll out into an empty room: without this, the animation has
+        # already played by the time the user opens the printed URL and all
+        # they ever see is the final pose.
+        if not scene.server.get_clients():
+          print("Waiting for a browser to connect before starting the rollout...")
+          while not scene.server.get_clients():
+            time.sleep(0.1)
+          # Give the page a beat to finish loading the meshes.
+          time.sleep(1.0)
         scene.update_from_mjdata(self.data)
       elif render_backend == "native":
         from mujoco import viewer as mujoco_viewer
