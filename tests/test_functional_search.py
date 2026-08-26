@@ -26,10 +26,9 @@ def test_minimize_functional_improves_on_synthetic_objective():
   def objective(law):
     return float(np.mean((law(s) - target) ** 2))
 
-  result = functional_search.minimize_functional(
-    objective, n_init=4, n_iter=2, m=2, seed=0
-  )
-  assert result.costs.shape == (6,)
+  # schedule is [1, 2]: 4 init evals, then two doubling stages -> 16 total
+  result = functional_search.minimize_functional(objective, n_init=4, m=2, seed=0)
+  assert result.costs.shape == (16,)
   assert np.isfinite(result.costs).all()
   assert result.best_cost == result.costs.min()
   # costs round-trip through a float32 buffer
