@@ -17,3 +17,4 @@ motions/
 *.csv
 *.npz
 MUJOCO_LOG.TXT
+*.mp4
