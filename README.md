@@ -1,13 +1,14 @@
 # dash_bar_trajopt
 
-Trajectory-optimization benchmark on the Dash humanoid's upper body: a
-horizontal bar sits on a vertical revolute joint in front of the robot, so it
-can only swing in the horizontal plane and gravity never moves it. The goal is
-to make the bar point at a commanded angle by pushing it with the right arm.
+Trajectory-optimization benchmark on the Dash humanoid's upper body: a flat
+ship's wheel -- three horizontal spokes on one vertical revolute joint -- sits
+in front of the robot, so it can only spin in the horizontal plane and gravity
+never moves it. The goal is to make the red spoke point at a commanded angle
+by pushing the wheel with the right arm.
 
-You provide one vectorized control law (times in, desired joint positions out),
-the simulator rolls it out with PD control, and you get back a scalar cost.
-Deterministic: the same law always produces the same cost.
+You provide one vectorized control law (phase in, normalized joint targets
+out), the simulator rolls it out with PD control, and you get back a scalar
+cost. Deterministic: the same law always produces the same cost.
 
 ## Setup
 
@@ -27,26 +28,34 @@ env = BarAngleTrajOptEnv()          # horizon=5.0 s, kp=20, kd=1, dt=0.005 s
 cost = env.evaluate(control_law, target_angle=0.6)   # rad
 ```
 
-- `control_law` maps times in seconds (`0 <= t < horizon`, shape `(..., 1)`) to
-  desired joint positions in radians (shape `(..., 4)`). Values outside a
-  joint's range are clamped; non-finite values raise. It must be vectorized
-  over the leading axes -- returning the wrong shape is an error, not a
-  silently broadcast constant.
+- `control_law` maps phase in `[0, 1)` (the fraction of the horizon elapsed,
+  shape `(..., 1)`) to normalized joint targets in `[-1, 1]` (shape
+  `(..., 4)`): 0 holds the spawn pose, +-1 reaches the joint's upper/lower
+  limit, so the zero function is the do-nothing law and no radians or joint
+  limits ever reach the optimizer. Values outside the cube are clipped;
+  non-finite values raise. It must be vectorized over the leading axes --
+  returning the wrong shape is an error, not a silently broadcast constant.
 - By default the law is queried once for the whole horizon before stepping.
   Pass `precompute=False` to have it queried one step at a time instead; for a
   law that is a function of time alone the two are equivalent, and the costs
   agree exactly.
 - The four output columns drive the right arm, in this order:
-  `r_shoulder_pitch`, `r_shoulder_roll`, `r_shoulder_yaw`, `r_elbow_pitch`
-  (ranges: `[-0.6, 1.1]`, `[-0.6, 0.3]`, `[-0.8, 0.8]`, `[-1.5, 0]`).
-  The left arm is held at its spawn pose and never reaches the bar.
+  `r_shoulder_pitch`, `r_shoulder_roll`, `r_shoulder_yaw`, `r_elbow_pitch`.
+  The left arm is held at its spawn pose and never reaches the wheel.
 - Tracking is a PD torque law, `kp * (desired - q) - kd * qd`, clamped to the
-  30 Nm effort limit. `kp`, `kd`, `horizon`, `timestep` and the bar's initial
-  angle are constructor arguments.
-- **Cost** = `|shortest angular distance(target_angle, final bar angle)|` in
-  radians, measured once when the horizon runs out. Doing nothing costs
-  `|target_angle|`; the bar starts at angle 0 (pointing at the robot),
-  positive angles swing its free end to the robot's right.
+  30 Nm effort limit. `kp`, `kd`, `horizon`, `timestep`, the wheel's initial
+  angle, its spoke count and the reaching-penalty weight are constructor
+  arguments (`num_spokes=1` recovers a single lone bar).
+- **Cost** = `|shortest angular distance(target_angle, final wheel angle)|` in
+  radians, measured on the red spoke when the horizon runs out. The wheel
+  starts at angle 0 (red spoke pointing at the robot); positive angles swing
+  its free end to the robot's right.
+- **Dense reaching term**: a rollout whose end-effector never touches the
+  wheel is additionally charged `reach_penalty_weight` (default 1 rad/m) times
+  its closest approach to the wheel, so never-touching candidates are ordered
+  by how close they came instead of all costing exactly `|target_angle|`.
+  Contact at any point during the rollout removes the term entirely -- it
+  never trades off against the angle error.
 
 A 5 s rollout evaluates in ~30 ms on CPU, so search methods can afford
 thousands of candidates. One `BarAngleTrajOptEnv` instance is reusable across
@@ -56,7 +65,8 @@ evaluations but not thread-safe; create one per worker for parallel search.
 
 ```python
 cost, traj = env.evaluate(control_law, target_angle=0.6, return_trajectory=True)
-# traj["time"], traj["bar_angle"], traj["joint_pos"], traj["joint_target"]
+# traj["time"], traj["bar_angle"], traj["joint_pos"], traj["joint_target"],
+# traj["hand_to_wheel"], traj["touched"]
 
 cost = env.evaluate(control_law, target_angle=0.6, render=True)   # watch it live
 

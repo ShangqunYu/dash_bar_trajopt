@@ -24,6 +24,8 @@ pushable, while the post itself stays out of the arms' way. The tip at spawn
 clears the torso's collision box (which ends at x = 0.08) by 6 cm.
 """
 
+import math
+
 import mujoco
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -108,13 +110,21 @@ episode is unrecoverable -- the analogue of the box off the table's edge."""
 ##
 
 
-def get_bar_spec() -> mujoco.MjSpec:
+def get_bar_spec(num_spokes: int = 1) -> mujoco.MjSpec:
   """A bar on a vertical hinge atop a floor-standing post.
 
+  With ``num_spokes > 1`` the bar becomes a flat ship's wheel: that many
+  equally spaced spokes in the swing plane, all rigidly attached to the same
+  hinge. Spoke 0 is the red one whose direction the hinge angle measures; the
+  others are grey and exist to give an arm more surfaces to push on. Each
+  spoke's tip carries a site ``bar_tip`` / ``bar_tip_1`` / ... in spoke order.
+
   The post is the only static collider; the bar body carries the hinge and the
-  capsule. Parent-child contacts are excluded by MuJoCo, so bar and post never
+  capsules. Parent-child contacts are excluded by MuJoCo, so bar and post never
   collide with each other, and nothing here reaches the floor plane.
   """
+  if num_spokes < 1:
+    raise ValueError(f"num_spokes must be >= 1, got {num_spokes}")
   spec = mujoco.MjSpec()
   base = spec.worldbody.add_body(name="bar_base")
   # The post stops 3.5 cm short of the swing plane so the bar capsule
@@ -162,35 +172,45 @@ def get_bar_spec() -> mujoco.MjSpec:
     # stiff hand contact lands right at the pivot end.
     armature=0.001,
   )
-  # Along local -x, so q = 0 points the bar back at the robot and the whole
-  # command range keeps it in front of the pivot. Signal red: the bar's
+  # Spoke 0 along local -x, so q = 0 points it back at the robot and the whole
+  # command range keeps it in front of the pivot. Signal red: this spoke's
   # direction is the entire task state, and it should be readable at a glance
-  # against the grey post and floor.
-  bar.add_geom(
-    name="bar_geom",
-    type=mujoco.mjtGeom.mjGEOM_CAPSULE,
-    fromto=[0.0, 0.0, 0.0, -BAR_LENGTH, 0.0, 0.0],
-    size=[BAR_RADIUS, 0.0, 0.0],
-    mass=BAR_MASS,
-    rgba=(0.82, 0.16, 0.12, 1.0),
-    # As with the box: the hands' geoms carry priority 2, so on a hand-bar
-    # contact the hand's friction wins outright and these values are moot.
-    condim=3,
-    friction=(0.6, 0.005, 0.0001),
-  )
-  bar.add_geom(
-    name="bar_tip_visual",
-    type=mujoco.mjtGeom.mjGEOM_SPHERE,
-    pos=[-BAR_LENGTH, 0.0, 0.0],
-    size=[0.026, 0.0, 0.0],
-    rgba=(0.95, 0.80, 0.15, 1.0),
-    group=2,
-    contype=0,
-    conaffinity=0,
-    density=0.0,
-  )
-  # The point the reaching terms measure to: the free end, maximum leverage.
-  bar.add_site(name="bar_tip", pos=[-BAR_LENGTH, 0.0, 0.0], size=[0.005] * 3)
+  # against the grey post, floor, and sibling spokes.
+  for i in range(num_spokes):
+    suffix = "" if i == 0 else f"_{i}"
+    theta = 2.0 * math.pi * i / num_spokes
+    # Spoke i points along the hinge angle q + theta (same convention as the
+    # hinge: rotation about +z from the -x spawn direction).
+    tip = (
+      -BAR_LENGTH * math.cos(theta),
+      -BAR_LENGTH * math.sin(theta),
+      0.0,
+    )
+    bar.add_geom(
+      name=f"bar_geom{suffix}",
+      type=mujoco.mjtGeom.mjGEOM_CAPSULE,
+      fromto=[0.0, 0.0, 0.0, *tip],
+      size=[BAR_RADIUS, 0.0, 0.0],
+      mass=BAR_MASS,
+      rgba=(0.82, 0.16, 0.12, 1.0) if i == 0 else (0.42, 0.42, 0.45, 1.0),
+      # As with the box: the hands' geoms carry priority 2, so on a hand-bar
+      # contact the hand's friction wins outright and these values are moot.
+      condim=3,
+      friction=(0.6, 0.005, 0.0001),
+    )
+    bar.add_geom(
+      name=f"bar_tip_visual{suffix}",
+      type=mujoco.mjtGeom.mjGEOM_SPHERE,
+      pos=list(tip),
+      size=[0.026, 0.0, 0.0],
+      rgba=(0.95, 0.80, 0.15, 1.0) if i == 0 else (0.60, 0.60, 0.63, 1.0),
+      group=2,
+      contype=0,
+      conaffinity=0,
+      density=0.0,
+    )
+    # The point reaching terms measure to: the free end, maximum leverage.
+    bar.add_site(name=f"bar_tip{suffix}", pos=list(tip), size=[0.005] * 3)
   return spec
 
 

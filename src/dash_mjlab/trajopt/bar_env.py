@@ -7,11 +7,19 @@ distance between where the bar was asked to point and where it points when the
 clock runs out. Same law in, same cost out, every time: plain single-threaded
 MuJoCo on CPU, no randomization, no torch.
 
-The scene is the same robot and bar as the RL task ``Mjlab-Bar-Angle-Dash-
-UpperBody`` (the specs are shared, not copied), minus the RL stack: a
-horizontal bar on a vertical hinge in front of the robot. Gravity has no
-torque about the hinge, so the bar stays wherever it is pushed, less what the
-joint damping bleeds off.
+The scene is the same robot and object as the RL task ``Mjlab-Bar-Angle-Dash-
+UpperBody`` (the specs are shared, not copied), minus the RL stack: a flat
+ship's-wheel of horizontal spokes on a single vertical hinge in front of the
+robot (``num_spokes``, default 3; 1 recovers the original lone bar). Gravity
+has no torque about the hinge, so the wheel stays wherever it is pushed, less
+what the joint damping bleeds off. The hinge angle -- and so the cost --
+measures spoke 0, the red one.
+
+The cost is dense where the terminal angle alone would be flat: a rollout
+whose end-effector never touches the wheel is additionally charged its
+closest approach to the wheel (times ``reach_penalty_weight``), so
+never-touching candidates are ordered by how close they came. Contact at any
+point during the rollout removes the term entirely.
 
 Only the right arm is driven. The law's output columns map to, in order:
 
@@ -44,7 +52,7 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
 import mujoco
 import numpy as np
@@ -110,10 +118,10 @@ def _wrap_to_pi(angle: float) -> float:
   return (angle + math.pi) % (2.0 * math.pi) - math.pi
 
 
-def _build_model(timestep: float) -> mujoco.MjModel:
-  """Robot at the origin, bar post at PIVOT_X, plus a target ghost.
+def _build_model(timestep: float, num_spokes: int) -> mujoco.MjModel:
+  """Robot at the origin, spoked wheel on its post at PIVOT_X, plus a ghost.
 
-  The ghost is a mocap body carrying a translucent copy of the bar: rotating
+  The ghost is a mocap body carrying a translucent copy of spoke 0: rotating
   its quaternion displays the commanded angle in the viewer without touching
   the physics.
   """
@@ -125,7 +133,7 @@ def _build_model(timestep: float) -> mujoco.MjModel:
     joint.armature = _ARMATURE
 
   frame = spec.worldbody.add_frame(pos=[PIVOT_X, 0.0, 0.0])
-  spec.attach(get_bar_spec(), frame=frame)
+  spec.attach(get_bar_spec(num_spokes), frame=frame)
 
   ghost = spec.worldbody.add_body(
     name="target_ghost", mocap=True, pos=[PIVOT_X, 0.0, 0.0]
@@ -207,14 +215,37 @@ class BarAngleTrajOptEnv:
     kd: float = 1.0,
     timestep: float = 0.005,
     initial_bar_angle: float = 0.0,
+    num_spokes: int = 3,
+    reach_penalty_weight: float = 1.0,
   ):
+    """See the class docstring. The two shaping knobs:
+
+    Args:
+      num_spokes: spokes on the wheel. The default 3 makes it a flat ship's
+        wheel -- a spoke is always within 60 degrees of the arm, so far more
+        of the search space actually moves the object than with a single bar.
+        3 is also the densest wheel whose spawn is contact-free: the parked
+        hands sit inside the wheel's swept disk (0.16 m from the pivot against
+        0.2 m spokes), and from 4 spokes up one always rests against a hand at
+        reset, nudging the wheel and making "never touched" unreachable.
+        The hinge angle (and so the cost) still measures spoke 0, the red one.
+      reach_penalty_weight: weight (rad per metre) of the dense reaching term.
+        A rollout that never touches the wheel is scored
+        ``angle_error + weight * min_distance(hand, wheel)``, so the flat
+        never-touched plateau -- where every candidate used to cost exactly
+        ``|target_angle|`` -- gains a slope pointing at the wheel. Any rollout
+        that makes contact drops the term entirely; it never trades off
+        against the angle. Set 0 to recover the pure terminal cost.
+    """
     self.horizon = horizon
     self.kp = kp
     self.kd = kd
     self.timestep = timestep
     self.initial_bar_angle = initial_bar_angle
+    self.num_spokes = num_spokes
+    self.reach_penalty_weight = reach_penalty_weight
 
-    self.model = _build_model(timestep)
+    self.model = _build_model(timestep, num_spokes)
     self.data = mujoco.MjData(self.model)
 
     def qadr(name: str) -> int:
@@ -246,6 +277,29 @@ class BarAngleTrajOptEnv:
     self._active_spawn = spawn(ACTIVE_JOINTS)
     self._passive_spawn = spawn(_PASSIVE_JOINTS)
     self._ghost_mocap_id = self.model.body("target_ghost").mocapid[0]
+
+    # Ids for the reaching term: the active arm's end-effector site and geom,
+    # and the wheel's spoke geoms and tip sites (attach-prefixed, hence the
+    # suffix matching). The pivot is fixed in the world, so hand-to-wheel
+    # distance is min over spokes of point-to-segment(pivot, tip_i).
+    self._hand_site_id = self.model.site("r_hand").id
+    self._hand_geom_id = self.model.geom("r_lower_arm_collision").id
+    def _suffix_ids(kind: str, names: list[str], suffixes: list[str]) -> np.ndarray:
+      ids = []
+      for suffix in suffixes:
+        (match,) = [n for n in names if n.endswith(suffix)]
+        ids.append(getattr(self.model, kind)(match).id)
+      return np.array(ids)
+
+    spoke_suffixes = ["bar_tip" if i == 0 else f"bar_tip_{i}" for i in range(num_spokes)]
+    site_names = [self.model.site(i).name for i in range(self.model.nsite)]
+    self._spoke_tip_site_ids = _suffix_ids("site", site_names, spoke_suffixes)
+    geom_suffixes = ["bar_geom" if i == 0 else f"bar_geom_{i}" for i in range(num_spokes)]
+    geom_names = [self.model.geom(i).name for i in range(self.model.ngeom)]
+    self._spoke_geom_ids = frozenset(
+      int(g) for g in _suffix_ids("geom", geom_names, geom_suffixes)
+    )
+    self._pivot_pos = np.array([PIVOT_X, 0.0, BAR_HEIGHT])
     # Lazily created on the first render and reused after, so repeated
     # rendered evaluations stream into the same browser tab.
     self._viser_scene: ViserMujocoScene | None = None
@@ -255,9 +309,34 @@ class BarAngleTrajOptEnv:
     return round(self.horizon / self.timestep)
 
   def bar_angle(self) -> float:
-    """Current bar hinge angle (rad). 0 points at the robot, positive swings
-    the free end to the robot's right."""
+    """Current bar hinge angle (rad). 0 points spoke 0 at the robot, positive
+    swings its free end to the robot's right."""
     return float(self.data.qpos[self._bar_qadr])
+
+  def _hand_to_wheel_distance(self) -> float:
+    """Distance (m) from the end-effector site to the nearest spoke's
+    centreline segment (pivot to tip). Surface offsets (capsule radii) are a
+    constant the min cannot see, so the segment distance is the right shape."""
+    hand = self.data.site_xpos[self._hand_site_id]
+    tips = self.data.site_xpos[self._spoke_tip_site_ids]  # (num_spokes, 3)
+    seg = tips - self._pivot_pos
+    rel = hand - self._pivot_pos
+    t = np.clip(
+      (seg @ rel) / np.einsum("ij,ij->i", seg, seg), 0.0, 1.0
+    )  # (num_spokes,)
+    closest = self._pivot_pos + t[:, None] * seg
+    return float(np.linalg.norm(hand - closest, axis=-1).min())
+
+  def _hand_touching_wheel(self) -> bool:
+    """True while the end-effector geom is in contact with any spoke."""
+    con = self.data.contact
+    for i in range(self.data.ncon):
+      g1, g2 = int(con.geom1[i]), int(con.geom2[i])
+      if (g1 == self._hand_geom_id and g2 in self._spoke_geom_ids) or (
+        g2 == self._hand_geom_id and g1 in self._spoke_geom_ids
+      ):
+        return True
+    return False
 
   def _reset(self, target_angle: float) -> None:
     mujoco.mj_resetData(self.model, self.data)
@@ -312,6 +391,36 @@ class BarAngleTrajOptEnv:
       self._viser_scene = ViserMujocoScene(server, self.model, num_envs=1)
     return self._viser_scene
 
+  @overload
+  def evaluate(
+    self,
+    control_law: ControlLaw,
+    target_angle: float,
+    *,
+    precompute: bool = ...,
+    return_trajectory: Literal[False] = ...,
+    render: bool = ...,
+    render_backend: Literal["viser", "native"] = ...,
+    video_path: str | None = ...,
+    video_fps: int = ...,
+    video_size: tuple[int, int] = ...,
+  ) -> float: ...
+
+  @overload
+  def evaluate(
+    self,
+    control_law: ControlLaw,
+    target_angle: float,
+    *,
+    precompute: bool = ...,
+    return_trajectory: Literal[True],
+    render: bool = ...,
+    render_backend: Literal["viser", "native"] = ...,
+    video_path: str | None = ...,
+    video_fps: int = ...,
+    video_size: tuple[int, int] = ...,
+  ) -> tuple[float, dict[str, np.ndarray]]: ...
+
   def evaluate(
     self,
     control_law: ControlLaw,
@@ -339,8 +448,9 @@ class BarAngleTrajOptEnv:
         it queried one step at a time, which is what a state-dependent law
         would need.
       return_trajectory: also return the full rollout -- keys ``time``,
-        ``bar_angle``, ``joint_pos``, ``joint_target`` -- for debugging a
-        candidate. Off by default so the search loop pays nothing for it.
+        ``bar_angle``, ``joint_pos``, ``joint_target``, ``hand_to_wheel``,
+        and the scalar ``touched`` -- for debugging a candidate. Off by
+        default so the search loop pays nothing for it.
       render: play the rollout at real time in a viewer. For watching single
         candidates, not for use inside a search loop.
       render_backend: ``"viser"`` (default) serves the scene to the browser --
@@ -357,8 +467,10 @@ class BarAngleTrajOptEnv:
 
     Returns:
       The cost: |shortest angular distance between target and final bar
-      angle|, in radians. With ``return_trajectory``, a ``(cost, trajectory)``
-      tuple instead.
+      angle| in radians, plus -- only if the end-effector never contacted the
+      wheel -- ``reach_penalty_weight`` times the closest approach (m) of the
+      end-effector to the wheel over the rollout. With ``return_trajectory``,
+      a ``(cost, trajectory)`` tuple instead.
     """
     self._reset(target_angle)
 
@@ -370,6 +482,8 @@ class BarAngleTrajOptEnv:
     bar_angles = np.empty(n)
     joint_pos = np.empty((n, 4))
     joint_target = np.empty((n, 4))
+    hand_to_wheel = np.empty(n)
+    touched = False
 
     viewer = None
     scene = None
@@ -424,6 +538,8 @@ class BarAngleTrajOptEnv:
         bar_angles[k] = self.bar_angle()
         joint_pos[k] = self.data.qpos[self._active_qadr]
         joint_target[k] = desired
+        hand_to_wheel[k] = self._hand_to_wheel_distance()
+        touched = touched or self._hand_touching_wheel()
         if renderer is not None and t >= len(frames) / video_fps:
           renderer.update_scene(self.data, camera="video")
           frames.append(renderer.render())
@@ -453,11 +569,19 @@ class BarAngleTrajOptEnv:
         renderer.close()
 
     cost = abs(_wrap_to_pi(target_angle - self.bar_angle()))
+    # Dense shaping for the never-touched plateau: without it every rollout
+    # that misses the wheel costs exactly |target_angle| and a search gets no
+    # gradient until it stumbles into contact. Conditional on contact rather
+    # than always-on so a touching candidate is judged purely on the angle.
+    if not touched:
+      cost += self.reach_penalty_weight * float(hand_to_wheel.min())
     if return_trajectory:
       return cost, {
         "time": times,
         "bar_angle": bar_angles,
         "joint_pos": joint_pos,
         "joint_target": joint_target,
+        "hand_to_wheel": hand_to_wheel,
+        "touched": np.array(touched),
       }
     return cost
