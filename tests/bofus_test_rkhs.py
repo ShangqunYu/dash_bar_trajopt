@@ -25,7 +25,7 @@ def test_mixture_evaluation_matches_manual_rbf_sum():
 def test_pad_to_leaves_evaluations_unchanged():
     """Padded atoms carry zero weight, so they must not move the function values."""
     f = random_mixture(jax.random.key(0))
-    padded = f.pad_to(9)
+    padded = f.pad_to(jax.random.key(2), 9, (0.5, 1.5), (0.0, 1.0))
     t = jax.random.uniform(jax.random.key(1), (7, 3))
     assert padded.a.shape[-1] == 9
     assert padded(t) == pytest.approx(f(t), abs=1e-6)

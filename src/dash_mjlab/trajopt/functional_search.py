@@ -6,9 +6,10 @@ searches function space directly: candidates are RBF mixtures from phase
 ambient RKHS distance by a GP surrogate, with new candidates proposed by
 expected improvement over both basis-point locations and amplitudes.
 
-The search runs in stages that double the basis size: each stage splits every
-atom in two (leaving the function unchanged) and doubles the observation
-budget, so early stages explore a coarse basis cheaply and later stages refine.
+The search runs in stages that double the basis size: each stage pads the
+mixtures with zero-amplitude atoms at fresh latin-hypercube positions (leaving
+the function unchanged) and doubles the observation budget, so early stages
+explore a coarse basis cheaply and later stages refine.
 """
 
 from __future__ import annotations
@@ -67,7 +68,7 @@ def minimize_functional(
   seeds: rkhs.RBFMixture | None = None,
   l_range: tuple[float, float] = (0.05**2, 0.5**2),
   a_range: tuple[float, float] = (-1.5, 1.5),
-  on_step: Callable[[int, float], None] | None = None,
+  on_step: Callable[[int, float, rkhs.RBFMixture], None] | None = None,
 ) -> FunctionalResult:
   """Staged EI loop doubling the basis size, each stage doubling the observations.
 
@@ -95,9 +96,10 @@ def minimize_functional(
     fs = jax.tree.map(lambda z, sd: z.at[:n_seeds].set(sd), fs, seeds)
 
   def evaluate(i: int) -> float:
-    cost = objective(as_control_law(jax.tree.map(lambda z: z[i], fs)))
+    f = jax.tree.map(lambda z: z[i], fs)
+    cost = objective(as_control_law(f))
     if on_step is not None:
-      on_step(i, cost)
+      on_step(i, cost, f)
     return cost
 
   ys = jnp.full(n_init, jnp.nan)
@@ -108,7 +110,9 @@ def minimize_functional(
   for m_stage in schedule:
     # grow both buffers at the stage boundary, so each stage compiles once
     stage_end = 2 * i
-    fs = fs if m_stage == fs.l.shape[-2] else fs.split()
+    if m_stage != fs.l.shape[-2]:
+      key, key_pad = jr.split(key)
+      fs = fs.pad_to(key_pad, m_stage, l_range, x_range)
     fs, ys = _expand_to(fs, ys, stage_end)
     while i < stage_end:
       surrogate = gp.GaussianProcess.fit(fs, ys, profile=kernels.matern52)

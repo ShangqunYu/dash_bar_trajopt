@@ -37,19 +37,22 @@ class RBFMixture(NamedTuple):
         a = utils.rescale(a, *a_range)
         return RBFMixture(l=jnp.exp(log_l), x=x, a=a.squeeze(-1))
 
-    def pad_to(self, m: int) -> Self:
-        """Pad the mixture to a larger number of basis points."""
+    def pad_to(
+        self,
+        key,
+        m: int,
+        l_range: tuple[Scalar, Scalar],
+        x_range: tuple[Scalar, Scalar],
+    ) -> Self:
+        """Pad with zero-amplitude atoms at latin-hypercube positions and lengthscales."""
         *b, m0, d = self.l.shape
-        l = jnp.ones((*b, m, d)).at[..., :m0, :].set(self.l)
-        x = jnp.zeros((*b, m, d)).at[..., :m0, :].set(self.x)
+        p = utils.latin_hypercube_sample(key, (*b, m - m0, 2 * d))
+        log_l, x_new = jnp.split(p, [d], axis=-1)
+        log_l = utils.rescale(log_l, jnp.log(l_range[0]), jnp.log(l_range[1]))
+        x_new = utils.rescale(x_new, *x_range)
+        l = jnp.concatenate([self.l, jnp.exp(log_l)], axis=-2)
+        x = jnp.concatenate([self.x, x_new], axis=-2)
         a = jnp.zeros((*b, m)).at[..., :m0].set(self.a)
-        return self._replace(l=l, x=x, a=a)
-
-    def split(self) -> Self:
-        """Split every atom in two with half amplitude, leaving the function unchanged."""
-        l = jnp.concatenate([self.l, self.l], axis=-2)
-        x = jnp.concatenate([self.x, self.x], axis=-2)
-        a = jnp.concatenate([self.a / 2, self.a / 2], axis=-1)
         return self._replace(l=l, x=x, a=a)
 
 
