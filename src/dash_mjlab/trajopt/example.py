@@ -13,12 +13,11 @@ pose, so no radians and no joint limits ever reach the optimizer.
 
 The push shown here was found by exactly the kind of search this environment
 exists to serve -- random search over the two-phase smoothstep family in
-``trajopt.search``, refined around the best sample. Its two legs overlap into
-one continuous motion that hooks the wheel and drags spoke 0 onto the target,
-scoring 0.001 rad against a target of -0.5. Doing nothing scores 0.5 plus the
-reaching penalty (the closest-approach distance to the wheel, ~0.11 m), since
-a rollout that never touches the wheel is charged for how far it stayed from
-it.
+``trajopt.search``, refined around the best sample. It hooks the wheel early
+and flicks it onto the target, scoring 0.0003 rad against a target of -0.5.
+Doing nothing scores 0.5 plus the reaching penalty (the closest-approach
+distance to the wheel, ~0.14 m), since a rollout that never touches the wheel
+is charged for how far it stayed from it.
 """
 
 import argparse
@@ -29,14 +28,14 @@ from jaxtyping import Float
 from dash_mjlab.trajopt import BarAngleTrajOptEnv
 
 TARGET_ANGLE = -0.5
-# Searched on the 3-spoke wheel (see scratch search over TwoPhaseSmoothstep):
-# the legs overlap -- leg B's quick yaw-in starts first, leg A's slower reach
-# rides on top -- and together they hook a spoke and drag the wheel onto the
-# target.
-POSE_A = np.array([-0.1423324, 0.3257772, -0.7219670, -0.8735937])
-POSE_B = np.array([-0.5906081, 0.6926238, 0.9551563, -0.1813463])
-S_A, W_A = 0.5468864, 0.7497688  # leg A start and duration, phase fractions
-S_B, W_B = 0.3752457, 0.0191130  # leg B start and duration
+# Searched on the 3-spoke wheel (random search over TwoPhaseSmoothstep,
+# refined): both legs fire in the first fifth of the horizon -- a quick hook
+# with the yaw and elbow pinned at their limits, then a shoulder-pitch flick
+# that spins the wheel onto the target, where the hinge damping parks it.
+POSE_A = np.array([-0.4948160, 0.8244294, 1.0, 1.0])
+POSE_B = np.array([0.9938336, 0.3566064, 1.0, 1.0])
+S_A, W_A = 0.0260739, 0.0912601  # leg A start and duration, phase fractions
+S_B, W_B = 0.1304346, 0.0100000  # leg B start and duration
 
 
 def _smoothstep(a: Float[np.ndarray, "..."]) -> Float[np.ndarray, "..."]:

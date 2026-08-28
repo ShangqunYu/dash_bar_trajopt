@@ -105,7 +105,7 @@ _SPAWN_POSE = {
   "shoulder_pitch": -0.3,
   "shoulder_roll": 0.0,
   "shoulder_yaw": 0.0,
-  "elbow_pitch": -0.4,
+  "elbow_pitch": -0.8,
 }
 assert ARMS_READY_KEYFRAME.joint_pos is not None  # Keep the two poses in sync.
 assert (
@@ -224,10 +224,10 @@ class BarAngleTrajOptEnv:
       num_spokes: spokes on the wheel. The default 3 makes it a flat ship's
         wheel -- a spoke is always within 60 degrees of the arm, so far more
         of the search space actually moves the object than with a single bar.
-        3 is also the densest wheel whose spawn is contact-free: the parked
-        hands sit inside the wheel's swept disk (0.16 m from the pivot against
-        0.2 m spokes), and from 4 spokes up one always rests against a hand at
-        reset, nudging the wheel and making "never touched" unreachable.
+        Whatever the count, the spawn must stay contact-free (a spoke resting
+        against a hand at reset nudges the wheel and makes "never touched"
+        unreachable); with the current spawn pose, elbows at -0.8, counts up
+        to at least 6 clear the parked hands by 10 cm or more.
         The hinge angle (and so the cost) still measures spoke 0, the red one.
       reach_penalty_weight: weight (rad per metre) of the dense reaching term.
         A rollout that never touches the wheel is scored

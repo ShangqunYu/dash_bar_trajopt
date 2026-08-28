@@ -125,7 +125,7 @@ ARMS_READY_KEYFRAME = EntityCfg.InitialStateCfg(
     "r_shoulder_roll": 0.0,
     "l_shoulder_roll": 0.0,
     ".*_shoulder_yaw": 0.0,
-    ".*_elbow_pitch": -0.4,
+    ".*_elbow_pitch": -0.8,
   },
   joint_vel={".*": 0.0},
 )
