@@ -131,3 +131,25 @@ def test_trajectory_output_shapes(env: BarAngleTrajOptEnv) -> None:
   assert traj["touched"].shape == ()
   assert np.isfinite(traj["joint_pos"]).all()
   assert np.isfinite(traj["hand_to_wheel"]).all()
+
+
+def test_both_arms_mode() -> None:
+  """arms="both" drives eight joints (right columns first), demands the wider
+  output shape, and its do-nothing rollout matches the right-arm one closely --
+  the only change at spawn is the left arm's hold gains."""
+  env = BarAngleTrajOptEnv(arms="both")
+  assert len(env.active_joints) == 8
+  assert env.active_joints[:4] == ("r_shoulder_pitch", "r_shoulder_roll", "r_shoulder_yaw", "r_elbow_pitch")
+  assert all(n.startswith("l_") for n in env.active_joints[4:])
+
+  with pytest.raises(ValueError):
+    env.evaluate(hold_spawn, 0.5)  # 4 columns into an 8-joint env
+
+  def hold8(s):
+    return np.zeros((*s.shape[:-1], 8))
+
+  cost, traj = env.evaluate(hold8, 0.5, return_trajectory=True)
+  assert traj["joint_pos"].shape == (env.num_steps, 8)
+  assert not bool(traj["touched"])
+  right_cost = BarAngleTrajOptEnv().evaluate(hold_spawn, 0.5)
+  assert abs(cost - right_cost) < 0.01

@@ -42,6 +42,9 @@ cost = env.evaluate(control_law, target_angle=0.6)   # rad
 - The four output columns drive the right arm, in this order:
   `r_shoulder_pitch`, `r_shoulder_roll`, `r_shoulder_yaw`, `r_elbow_pitch`.
   The left arm is held at its spawn pose and never reaches the wheel.
+  Pass `arms="both"` to drive all eight joints instead (right columns first,
+  then the left counterparts); the law must then return shape `(..., 8)`, and
+  the reaching penalty and contact test cover both hands.
 - Tracking is a PD torque law, `kp * (desired - q) - kd * qd`, clamped to the
   30 Nm effort limit. `kp`, `kd`, `horizon`, `timestep`, the wheel's initial
   angle, its spoke count and the reaching-penalty weight are constructor
