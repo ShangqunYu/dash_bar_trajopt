@@ -7,7 +7,7 @@ dist/
 
 # Training artifacts.
 logs/
-outputs/
+outputs*/
 wandb/
 export/
 *.pt
