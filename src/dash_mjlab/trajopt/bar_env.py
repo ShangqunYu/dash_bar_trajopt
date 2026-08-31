@@ -50,9 +50,13 @@ the bar.
 from __future__ import annotations
 
 import math
+import os
+import subprocess
+import sys
+import tempfile
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Literal, cast, overload
+from typing import TYPE_CHECKING, Literal, overload
 
 import mujoco
 import numpy as np
@@ -116,6 +120,71 @@ assert _SPAWN_POSE["elbow_pitch"] == ARMS_READY_KEYFRAME.joint_pos[".*_elbow_pit
 
 def _wrap_to_pi(angle: float) -> float:
   return (angle + math.pi) % (2.0 * math.pi) - math.pi
+
+
+# Offscreen rendering happens in a subprocess that imports only mujoco: torch
+# (pulled in by mjlab) and OSMesa's software GL cannot share a process, so an
+# in-process mujoco.Renderer segfaults on headless nodes.
+_REPLAY_SRC = """
+import sys
+
+import imageio
+import mujoco
+import numpy as np
+
+model_path, state_path, out_path, fps, height, width = sys.argv[1:7]
+model = mujoco.MjModel.from_binary_path(model_path)
+data = mujoco.MjData(model)
+state = np.load(state_path)
+data.mocap_pos[:] = state["mocap_pos"]
+data.mocap_quat[:] = state["mocap_quat"]
+renderer = mujoco.Renderer(model, height=int(height), width=int(width))
+frames = []
+for qpos in state["qpos"]:
+  data.qpos[:] = qpos
+  mujoco.mj_forward(model, data)
+  renderer.update_scene(data, camera="video")
+  frames.append(renderer.render())
+imageio.mimwrite(out_path, frames, fps=int(fps))
+renderer.close()
+"""
+
+
+def _render_video(
+  model: mujoco.MjModel,
+  data: mujoco.MjData,
+  qpos_frames: Float[np.ndarray, "F Q"],
+  video_path: str,
+  fps: int,
+  size: tuple[int, int],
+) -> None:
+  """Replay recorded qpos frames to a video file in a torch-free subprocess."""
+  with tempfile.TemporaryDirectory() as tmp:
+    model_path = os.path.join(tmp, "model.mjb")
+    state_path = os.path.join(tmp, "state.npz")
+    mujoco.mj_saveModel(model, model_path, None)
+    np.savez(
+      state_path,
+      qpos=qpos_frames,
+      mocap_pos=data.mocap_pos,
+      mocap_quat=data.mocap_quat,
+    )
+    env = os.environ | {"MUJOCO_GL": os.environ.get("MUJOCO_GL", "osmesa")}
+    subprocess.run(
+      [
+        sys.executable,
+        "-c",
+        _REPLAY_SRC,
+        model_path,
+        state_path,
+        video_path,
+        str(fps),
+        str(size[0]),
+        str(size[1]),
+      ],
+      check=True,
+      env=env,
+    )
 
 
 def _build_model(timestep: float, num_spokes: int) -> mujoco.MjModel:
@@ -284,6 +353,7 @@ class BarAngleTrajOptEnv:
     # distance is min over spokes of point-to-segment(pivot, tip_i).
     self._hand_site_id = self.model.site("r_hand").id
     self._hand_geom_id = self.model.geom("r_lower_arm_collision").id
+
     def _suffix_ids(kind: str, names: list[str], suffixes: list[str]) -> np.ndarray:
       ids = []
       for suffix in suffixes:
@@ -291,10 +361,14 @@ class BarAngleTrajOptEnv:
         ids.append(getattr(self.model, kind)(match).id)
       return np.array(ids)
 
-    spoke_suffixes = ["bar_tip" if i == 0 else f"bar_tip_{i}" for i in range(num_spokes)]
+    spoke_suffixes = [
+      "bar_tip" if i == 0 else f"bar_tip_{i}" for i in range(num_spokes)
+    ]
     site_names = [self.model.site(i).name for i in range(self.model.nsite)]
     self._spoke_tip_site_ids = _suffix_ids("site", site_names, spoke_suffixes)
-    geom_suffixes = ["bar_geom" if i == 0 else f"bar_geom_{i}" for i in range(num_spokes)]
+    geom_suffixes = [
+      "bar_geom" if i == 0 else f"bar_geom_{i}" for i in range(num_spokes)
+    ]
     geom_names = [self.model.geom(i).name for i in range(self.model.ngeom)]
     self._spoke_geom_ids = frozenset(
       int(g) for g in _suffix_ids("geom", geom_names, geom_suffixes)
@@ -507,10 +581,9 @@ class BarAngleTrajOptEnv:
       else:
         raise ValueError(f"Unknown render_backend: {render_backend!r}")
 
-    renderer = None
-    frames: list[np.ndarray] = []
-    if video_path is not None:
-      renderer = mujoco.Renderer(self.model, height=video_size[0], width=video_size[1])
+    # Rendering happens after the rollout in a torch-free subprocess (see
+    # _render_video); here only the poses to replay are collected.
+    qpos_frames: list[np.ndarray] = []
 
     try:
       for k in range(n):
@@ -540,9 +613,8 @@ class BarAngleTrajOptEnv:
         joint_target[k] = desired
         hand_to_wheel[k] = self._hand_to_wheel_distance()
         touched = touched or self._hand_touching_wheel()
-        if renderer is not None and t >= len(frames) / video_fps:
-          renderer.update_scene(self.data, camera="video")
-          frames.append(renderer.render())
+        if video_path is not None and t >= len(qpos_frames) / video_fps:
+          qpos_frames.append(self.data.qpos.copy())
         if scene is not None:
           # ~66 Hz scene sync is enough for the browser; the sleep paces the
           # whole rollout to real time.
@@ -556,17 +628,18 @@ class BarAngleTrajOptEnv:
           time.sleep(self.timestep)
       if scene is not None:
         scene.update_from_mjdata(self.data)  # Show the final settled state.
-      if renderer is not None and video_path is not None:
-        # imageio over mediapy: it ships its own ffmpeg binary, so writing
-        # works on machines with no system ffmpeg installed.
-        import imageio
-
-        imageio.mimwrite(video_path, cast("list[Any]", frames), fps=video_fps)
+      if video_path is not None:
+        _render_video(
+          self.model,
+          self.data,
+          np.array(qpos_frames),
+          video_path,
+          video_fps,
+          video_size,
+        )
     finally:
       if viewer is not None:
         viewer.close()
-      if renderer is not None:
-        renderer.close()
 
     cost = abs(_wrap_to_pi(target_angle - self.bar_angle()))
     # Dense shaping for the never-touched plateau: without it every rollout
