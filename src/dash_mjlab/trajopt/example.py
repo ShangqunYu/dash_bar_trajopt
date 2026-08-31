@@ -12,9 +12,9 @@ shoulder pitch, shoulder roll, shoulder yaw and elbow pitch. Zero is the spawn
 pose, so no radians and no joint limits ever reach the optimizer.
 
 The push shown here was found by exactly the kind of search this environment
-exists to serve -- random search over the two-phase smoothstep family in
-``trajopt.search``, refined around the best sample. It hooks the wheel early
-and flicks it onto the target, scoring 0.0003 rad against a target of -0.5.
+exists to serve -- random search over a two-phase smoothstep family, refined
+around the best sample. It hooks the wheel early and flicks it onto the
+target, scoring 0.0003 rad against a target of -0.5.
 Doing nothing scores 0.5 plus the reaching penalty (the closest-approach
 distance to the wheel, ~0.14 m), since a rollout that never touches the wheel
 is charged for how far it stayed from it.
@@ -28,7 +28,7 @@ from jaxtyping import Float
 from dash_mjlab.trajopt import BarAngleTrajOptEnv
 
 TARGET_ANGLE = -0.5
-# Searched on the 3-spoke wheel (random search over TwoPhaseSmoothstep,
+# Searched on the 3-spoke wheel (random search over two-phase smoothsteps,
 # refined): both legs fire in the first fifth of the horizon -- a quick hook
 # with the yaw and elbow pinned at their limits, then a shoulder-pitch flick
 # that spins the wheel onto the target, where the hinge damping parks it.
