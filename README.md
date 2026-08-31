@@ -98,6 +98,48 @@ target, against 0.5 for doing nothing -- it was found by plain random search
 over a smoothstep parameterization, so it is also a floor for what your
 optimizer should beat.
 
+## Progress dashboard
+
+```bash
+uv run python scripts/run_fbo.py --num-spokes 3   # logs to outputs/turn-3-spoke-to-61p352/
+uv run python scripts/make_fbo_dashboard.py outputs/turn-3-spoke-to-61p352
+```
+
+The standard grid is 1/3/6 spokes crossed with an easy and a hard target
+(hold and one-push demo costs from the run log headers):
+
+| `--num-spokes` | `--target-angle` | hold cost | one-push demo |
+| --- | --- | --- | --- |
+| 1 | `-0.5` (-29 deg) | 0.70 | 0.12 |
+| 3 | `-0.5` (-29 deg) | 0.64 | 0.0003 |
+| 6 | `-0.5` (-29 deg) | 0.63 | 0.19 |
+| 1 | `3.0` (172 deg) | 3.20 | 2.90 |
+| 3 | `3.0` (172 deg) | 3.14 | 2.78 |
+| 6 | `3.0` (172 deg) | 3.13 | 2.59 |
+
+`-0.5` is within a single push of the spawn pose. `3.0` is past any wheel's
+spoke spacing: the one-push demo runs its spoke out of the arm's sweep and
+stalls, so reaching the target needs the arm to release and pick up the next
+spoke -- and the more spokes, the sooner a fresh one swings into reach.
+
+`--num-spokes` takes any count from 1 up (1 is the original lone bar); the
+spawn pose clears the wheel by at least 11 cm through 12 spokes, and the
+runner warns if a count ever puts a spoke against a parked hand. The count is
+recorded in the log header, so `render_eval.py` rebuilds the right wheel.
+
+```bash
+mkdir -p .slurm-logs
+sbatch slurm/run_parallel_sweep.sbatch  # all six grid cells on one node
+```
+
+The runner logs every rollout (cost, wall time, law curve) to
+`<out>/log.jsonl` as it goes (with no `--out` it names the directory
+`outputs/turn-<spokes>-spoke-to-<deg>`, the target as a bar heading in
+degrees) and renders a video per running best
+when done; the builder bakes the log and videos into a self-contained HTML
+page from `scripts/fbo_dashboard_template.html`. It works on a partial log
+too, so you can build the page mid-run.
+
 ## Tests
 
 ```bash

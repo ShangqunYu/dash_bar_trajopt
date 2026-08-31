@@ -18,3 +18,8 @@ motions/
 *.npz
 MUJOCO_LOG.TXT
 *.mp4
+.slurm-logs/
+
+# Generated dashboards.
+fbo_progress.html
+watch_dashboards.log
