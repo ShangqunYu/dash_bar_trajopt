@@ -4,6 +4,7 @@
 (shoulder pitch/roll/yaw, elbow pitch). Total mass ~34.1 kg.
 """
 
+import functools
 from pathlib import Path
 
 import mujoco
@@ -20,9 +21,18 @@ from dash_mjlab import DASH_MJLAB_SRC_PATH
 DASH_XML: Path = DASH_MJLAB_SRC_PATH / "robots" / "xmls" / "dash.xml"
 assert DASH_XML.exists()
 
+# Generated from the designer's robotDataPackage URDF by
+# scripts/import_dash_urdf.py. Same 18 DOF and the same body, joint, geom and
+# site names as dash.xml, so every regex in the task configs matches both, but
+# the masses, inertias, link geometry, joint limits and several joint sign
+# conventions are the designer's rather than the older export's. See
+# KNEES_BENT_KEYFRAME_V2 for the sign difference that reaches this file.
+DASH_V2_XML: Path = DASH_MJLAB_SRC_PATH / "robots" / "xmls" / "dash_v2.xml"
+assert DASH_V2_XML.exists()
 
-def get_spec() -> mujoco.MjSpec:
-  spec = mujoco.MjSpec.from_file(str(DASH_XML))
+
+def get_spec(xml: Path = DASH_XML) -> mujoco.MjSpec:
+  spec = mujoco.MjSpec.from_file(str(xml))
 
   # Every joint in the MJCF carries `actuatorfrcrange="-10 10"`, inherited from
   # the URDF's placeholder 10 Nm. MuJoCo applies that clamp to qfrc_actuator
@@ -33,6 +43,10 @@ def get_spec() -> mujoco.MjSpec:
   #
   # Clearing the joint-level limit makes effort_limit the single source of truth.
   # Re-derive both from real motor specs before deploying to hardware.
+  #
+  # dash_v2.xml carries no actuatorfrcrange at all -- the designer's URDF leaves
+  # effort="0" on every joint, which is no more usable as a limit than the 10 Nm
+  # placeholder -- so this loop is a no-op there and effort_limit already rules.
   for joint in spec.joints:
     joint.actfrclimited = mujoco.mjtLimited.mjLIMITED_FALSE
 
@@ -122,6 +136,30 @@ KNEES_BENT_KEYFRAME = EntityCfg.InitialStateCfg(
   joint_vel={".*": 0.0},
 )
 
+# Same physical stance on the v2 model. Two things change:
+#
+#   - 0.6735 rather than 0.688, because the designer's legs put the sole that
+#     far below the torso at this pose. Measured, not guessed: fold the
+#     keyframe into the model and read off the foot sites.
+#   - shoulder_pitch is negated. Six of the eighteen joints have the opposite
+#     sign convention in the designer's URDF (l_hip_yaw, l_shoulder_pitch,
+#     r_hip_roll, r_shoulder_pitch, r_shoulder_roll, r_shoulder_yaw), and
+#     shoulder_pitch is the only one of those with a non-zero default here. The
+#     rest of the pose is sign-identical. Both sides flip together, so the
+#     stance stays mirror-symmetric; +0.4 would swing both arms backwards.
+#     Verified by comparing forearm position against dash.xml at this pose.
+KNEES_BENT_KEYFRAME_V2 = EntityCfg.InitialStateCfg(
+  pos=(0.0, 0.0, 0.6735),
+  joint_pos={
+    ".*_hip_pitch": -0.349,
+    ".*_knee_pitch": 0.698,
+    ".*_ankle_pitch": -0.349,
+    ".*_elbow_pitch": -0.8,
+    ".*_shoulder_pitch": -0.4,
+  },
+  joint_vel={".*": 0.0},
+)
+
 ##
 # Collision config.
 ##
@@ -163,16 +201,20 @@ DASH_ARTICULATION = EntityArticulationInfoCfg(
 )
 
 
-def get_dash_robot_cfg() -> EntityCfg:
+def get_dash_robot_cfg(v2: bool = False) -> EntityCfg:
   """Get a fresh Dash robot config instance.
 
   Returns a new EntityCfg each time so callers that mutate it don't affect
   other tasks sharing the config.
+
+  Set `v2` for the model imported from the designer's URDF. The two share every
+  name the task configs match on, so the collision and actuator configs above
+  apply unchanged; only the model file and the starting stance differ.
   """
   return EntityCfg(
-    init_state=KNEES_BENT_KEYFRAME,
+    init_state=KNEES_BENT_KEYFRAME_V2 if v2 else KNEES_BENT_KEYFRAME,
     collisions=(FULL_COLLISION,),
-    spec_fn=get_spec,
+    spec_fn=functools.partial(get_spec, DASH_V2_XML if v2 else DASH_XML),
     articulation=DASH_ARTICULATION,
   )
 

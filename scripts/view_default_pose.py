@@ -8,6 +8,8 @@ patterns) and holds it, so what you see is what training actually starts from.
 Usage:
   uv run python scripts/view_default_pose.py            # hold the pose, no gravity
   uv run python scripts/view_default_pose.py --physics  # let it fall (no actuators)
+  uv run python scripts/view_default_pose.py --v2       # the URDF-imported model
+  uv run python scripts/view_default_pose.py --collision # colliders, not meshes
 
 On a hybrid-graphics laptop, prefix with:
   __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia
@@ -79,6 +81,22 @@ def add_ground(spec: mujoco.MjSpec) -> None:
   )
 
 
+def geom_group_option(collision: bool) -> mujoco.MjvOption:
+  """Viewer options showing either the visual meshes or the colliders.
+
+  Both dash.xml and dash_v2.xml put visual geometry in group 2 and colliders in
+  group 3, and MuJoCo's default visibility is groups 0-2 only -- so the
+  collision primitives are invisible unless something turns group 3 on.
+  Swapping rather than adding, because the colliders sit inside the meshes and
+  are entirely hidden by them.
+  """
+  opt = mujoco.MjvOption()
+  if collision:
+    opt.geomgroup[2] = 0
+    opt.geomgroup[3] = 1
+  return opt
+
+
 def main() -> None:
   parser = argparse.ArgumentParser()
   parser.add_argument(
@@ -87,9 +105,22 @@ def main() -> None:
     help="Step the simulation. The model has no actuators here, so it collapses; "
     "useful for checking the spawn height, not the pose itself.",
   )
+  parser.add_argument(
+    "--v2",
+    action="store_true",
+    help="Inspect dash_v2.xml, imported from the designer's URDF, instead of "
+    "dash.xml. Different masses, limits and joint sign conventions, so the "
+    "pose you see is KNEES_BENT_KEYFRAME_V2 rather than KNEES_BENT_KEYFRAME.",
+  )
+  parser.add_argument(
+    "--collision",
+    action="store_true",
+    help="Show the collision primitives (geom group 3) instead of the visual "
+    "meshes (group 2). MuJoCo hides group 3 by default.",
+  )
   args = parser.parse_args()
 
-  cfg = get_dash_robot_cfg()
+  cfg = get_dash_robot_cfg(v2=args.v2)
   spec = Entity(cfg).spec
   add_ground(spec)
   model = spec.compile()
@@ -132,6 +163,9 @@ def main() -> None:
     print("  -> OK (0-50 mm clearance)")
 
   with mujoco.viewer.launch_passive(model, data) as viewer:
+    if args.collision:
+      viewer.opt.geomgroup[2] = 0
+      viewer.opt.geomgroup[3] = 1
     while viewer.is_running():
       if args.physics:
         mujoco.mj_step(model, data)

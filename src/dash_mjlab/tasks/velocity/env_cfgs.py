@@ -31,8 +31,13 @@ from dash_mjlab.tasks.velocity.mdp import (
 )
 
 
-def dash_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """Create the Dash rough terrain velocity configuration."""
+def dash_rough_env_cfg(play: bool = False, v2: bool = False) -> ManagerBasedRlEnvCfg:
+  """Create the Dash rough terrain velocity configuration.
+
+  `v2` swaps in the model imported from the designer's URDF. Everything below
+  addresses the robot by name or regex, and the v2 import deliberately keeps the
+  same body, joint, geom and site names, so nothing else in this file changes.
+  """
   cfg = make_velocity_env_cfg()
 
   cfg.sim.mujoco.ccd_iterations = 500
@@ -41,7 +46,7 @@ def dash_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # than the G1's capsule-heavy collider set; 70 (the G1 value) overflows.
   cfg.sim.nconmax = 250
 
-  cfg.scene.entities = {"robot": get_dash_robot_cfg()}
+  cfg.scene.entities = {"robot": get_dash_robot_cfg(v2=v2)}
 
   # Dash's root body is the torso; mjlab's default terrain scan frame is not.
   for sensor in cfg.scene.sensors or ():
@@ -264,6 +269,14 @@ def dash_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # a deep sag that neither `fell_over` (orientation) nor `illegal_contact`
   # (ground touch) detects. 0.40 m sits below the 0.462 m deepest crouch the
   # joint limits permit, so it can't fire on a legit pose.
+  #
+  # That headroom argument holds for dash.xml only. The v2 model carries the
+  # designer's mechanical limits, which are roughly twice as wide (knee to 150
+  # deg rather than 86), and they fold the robot to 0.02 m -- so on v2 this
+  # threshold is reachable rather than unreachable. It still reads as "has
+  # collapsed" at 0.40 m, which is what the term is for, but it is now a
+  # judgement call about how deep a crouch to allow rather than a bound that
+  # cannot fire. Revisit it if v2 policies get terminated while squatting.
   cfg.terminations["torso_too_low"] = TerminationTermCfg(
     func=torso_height_below_minimum,
     params={
@@ -298,9 +311,9 @@ def dash_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   return cfg
 
 
-def dash_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+def dash_flat_env_cfg(play: bool = False, v2: bool = False) -> ManagerBasedRlEnvCfg:
   """Create the Dash flat terrain velocity configuration."""
-  cfg = dash_rough_env_cfg(play=play)
+  cfg = dash_rough_env_cfg(play=play, v2=v2)
 
   cfg.sim.njmax = 300
   cfg.sim.mujoco.ccd_iterations = 50

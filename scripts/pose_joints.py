@@ -14,10 +14,13 @@ configured init_state pose and only what you drag moves.
   - The play/pause button and Space do nothing here, by design. To watch the
     pose actually behave, use ``view_default_pose.py --physics``.
 
+Pass ``--v2`` for the model imported from the designer's URDF.
+
 On a hybrid-graphics laptop, prefix with:
   __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia
 """
 
+import argparse
 import atexit
 import threading
 import time
@@ -30,12 +33,16 @@ from mujoco._simulate import Simulate
 # Same repo, same scripts/ directory -- this file is run as a script, so that
 # directory is on sys.path. Reused rather than copied so the floor and the
 # pattern resolution cannot drift apart between the two tools.
-from view_default_pose import add_ground, resolve_pose
+from view_default_pose import add_ground, geom_group_option, resolve_pose
 
 from dash_mjlab.robots import get_dash_robot_cfg
 
 
-def launch_frozen(model: mujoco.MjModel, data: mujoco.MjData) -> None:
+def launch_frozen(
+  model: mujoco.MjModel,
+  data: mujoco.MjData,
+  opt: mujoco.MjvOption | None = None,
+) -> None:
   """The managed viewer, driven by a physics loop that never steps.
 
   Neither public entry point can do this. `launch_passive` leaves the joint
@@ -52,7 +59,7 @@ def launch_frozen(model: mujoco.MjModel, data: mujoco.MjData) -> None:
   viewer = mujoco.viewer
   simulate = Simulate(
     mujoco.MjvCamera(),
-    mujoco.MjvOption(),
+    opt if opt is not None else mujoco.MjvOption(),
     mujoco.MjvPerturb(),
     None,  # user_scn: the managed GUI owns its own scene.
     True,  # run_physics_thread: selects the managed (non-passive) GUI.
@@ -83,7 +90,25 @@ def launch_frozen(model: mujoco.MjModel, data: mujoco.MjData) -> None:
 
 
 def main() -> None:
-  cfg = get_dash_robot_cfg()
+  parser = argparse.ArgumentParser()
+  parser.add_argument(
+    "--v2",
+    action="store_true",
+    help="Pose dash_v2.xml, imported from the designer's URDF, instead of "
+    "dash.xml. Six joints have the opposite sign convention there, so this is "
+    "the quickest way to see which way a given joint now travels.",
+  )
+  parser.add_argument(
+    "--collision",
+    action="store_true",
+    help="Show the collision primitives (geom group 3) instead of the visual "
+    "meshes (group 2). MuJoCo hides group 3 by default, so this is the only "
+    "way to see the fitted capsules and foot boxes without hunting through the "
+    "Rendering panel.",
+  )
+  args = parser.parse_args()
+
+  cfg = get_dash_robot_cfg(v2=args.v2)
   spec = Entity(cfg).spec
   add_ground(spec)
   model = spec.compile()
@@ -102,7 +127,7 @@ def main() -> None:
   mujoco.mj_forward(model, data)
 
   print(__doc__)
-  launch_frozen(model, data)
+  launch_frozen(model, data, geom_group_option(collision=args.collision))
 
 
 if __name__ == "__main__":

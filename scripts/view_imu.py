@@ -8,6 +8,8 @@ On a hybrid-graphics laptop, prefix with:
   __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia
 """
 
+import argparse
+
 import mujoco
 import numpy as np
 from mjlab.entity.entity import Entity
@@ -47,7 +49,16 @@ def torso_wall_at(model: mujoco.MjModel, height: float, slab: float = 0.015):
 
 
 def main() -> None:
-  cfg = get_dash_robot_cfg()
+  parser = argparse.ArgumentParser()
+  parser.add_argument(
+    "--v2",
+    action="store_true",
+    help="Inspect dash_v2.xml, imported from the designer's URDF, instead of "
+    "dash.xml. The two place the IMU site differently.",
+  )
+  args = parser.parse_args()
+
+  cfg = get_dash_robot_cfg(v2=args.v2)
   spec = Entity(cfg).spec
   add_ground(spec)
   model = spec.compile()
