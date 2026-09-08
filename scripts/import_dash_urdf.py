@@ -89,6 +89,15 @@ BOX_LINKS = ("torso", "foot")
 # capsules from swallowing their neighbours.
 CAPSULE_RADIUS_PCT = 92.0
 
+# upper_leg/lower_leg override the default above. At 92% they cross the sagittal
+# midline and clip the torso across most of the walking/running joint range
+# (checked by sampling hip_pitch/hip_roll/knee_pitch): 2 cm of clearance against
+# the torso at the edge of that range, and outright overlap once hip abduction
+# and knee flexion move together toward their joint limits. 80% keeps the
+# self_collision sensor (env_cfgs.py) from firing on a normal gait while still
+# catching a genuine leg-crossing pose.
+LEG_CAPSULE_PCT = 80.0
+
 # Torso box percentile. Its mesh AABB is 227 mm deep because it includes the hip
 # mounts protruding off the back; clipping to the bulk of the shell keeps the
 # collider off the upper-leg capsules, which are grandchildren and so are not
@@ -525,7 +534,8 @@ def main() -> None:
       )
       print(f"  {name:16s} box     size={fmt(size)}")
     elif stem in CAPSULE_LINKS:
-      a, b, r = fit_capsule(mesh, args.capsule_pct)
+      pct = LEG_CAPSULE_PCT if stem in ("upper_leg", "lower_leg") else args.capsule_pct
+      a, b, r = fit_capsule(mesh, pct)
       colliders[name] = (
         f'<geom class="collision" name="{name}_collision" type="capsule" '
         f'fromto="{fmt(np.concatenate([a, b]))}" size="{r:.6g}"/>'

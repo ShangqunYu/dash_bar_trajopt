@@ -48,6 +48,14 @@ def dash_rough_env_cfg(play: bool = False, v2: bool = False) -> ManagerBasedRlEn
 
   cfg.scene.entities = {"robot": get_dash_robot_cfg(v2=v2)}
 
+  # The real robot has no state estimator, so the policy can't get true base
+  # linear velocity the way sim does (Unitree's own G1 sim-to-real recipe
+  # drops it from the observation for the same reason -- their low-level IMU
+  # state exposes only gyroscope/accelerometer/quaternion, no velocity). Kept
+  # in the critic: it's privileged sim-only information, discarded after
+  # training, and asymmetric actor-critic is exactly what it's for.
+  del cfg.observations["actor"].terms["base_lin_vel"]
+
   # Dash's root body is the torso; mjlab's default terrain scan frame is not.
   for sensor in cfg.scene.sensors or ():
     if sensor.name == "terrain_scan":

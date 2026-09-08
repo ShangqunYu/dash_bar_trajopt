@@ -72,37 +72,31 @@ EFFORT_LIMIT_ARM = 30.0
 # Reflected rotor inertia, also carried over from IsaacLab config.
 ARMATURE = 0.01
 
-# Sanity check for any future change: stiffness must exceed
-# (gravity torque at that joint) / (acceptable tracking error). Measured by
-# settling the default pose under contact with zero action (see the settle test
-# in scripts/), hip_pitch carries 42 Nm and everything else is under 5 Nm --
-# the earlier ~24 Nm estimate was taken while the joints were still clamped at
-# 10 Nm, so it read the clamp rather than the load.
-#
-# At stiffness 200 that 42 Nm leaves the hip sagging 0.18 rad while merely
-# standing. With an action scale of 0.25 rad, gravity compensation alone would
-# eat 72% of the policy's authority before it does anything useful. 350 brings
-# the sag to 0.12 rad; past ~400 it flattens out and is not worth the stiffer
-# contact dynamics. Damping is scaled with sqrt(stiffness) to hold the same
-# damping ratio.
+# Gains matched to the Unitree G1's published sim-to-real config
+# (unitree_rl_gym deploy/deploy_real/configs/g1.yaml: legs 100/150 stiffness,
+# 2/4 damping; arms 20-100 stiffness, 1-2 damping) rather than derived from
+# Dash's own load, on the user's call that the earlier per-joint tuning
+# below -- sized to hold gravity sag under 0.12-0.18 rad -- ran stiffer than
+# the real actuators. Trade-off to watch: hip_pitch measured at 42 Nm holding
+# the default stance (see the settle test in scripts/), so at stiffness 80 it
+# will sag ~0.5 rad under gravity alone -- the policy has to actively fight
+# that rather than get it for free from the PD term, unlike the old 350
+# setting. If training stalls on just holding a standing pose, this is the
+# first thing to revisit.
 DASH_HIP_YAW_ROLL_ACTUATOR_CFG = BuiltinPositionActuatorCfg(
   target_names_expr=(".*_hip_yaw", ".*_hip_roll"),
-  stiffness=150.0,
-  damping=5.0,
+  stiffness=80.0,
+  damping=2.0,
   effort_limit=EFFORT_LIMIT_HIP_YAW_ROLL,
   armature=ARMATURE,
 )
 DASH_HIP_KNEE_PITCH_ACTUATOR_CFG = BuiltinPositionActuatorCfg(
   target_names_expr=(".*_hip_pitch", ".*_knee_pitch"),
-  stiffness=350.0,
-  damping=8.0,
+  stiffness=80.0,
+  damping=2.0,
   effort_limit=EFFORT_LIMIT_HIP_KNEE_PITCH,
   armature=ARMATURE,
 )
-# Dash has no ankle roll, so the ankles are the only joints that can shift the
-# centre of pressure fore/aft, and the foot box is only 0.2 m long. Holding the
-# CoP at the toe needs ~33 Nm; at stiffness 40 that is 0.83 rad of deflection,
-# i.e. the ankle folds before it can arrest a forward lean. 80 halves it.
 DASH_ANKLE_ACTUATOR_CFG = BuiltinPositionActuatorCfg(
   target_names_expr=(".*_ankle_pitch",),
   stiffness=80.0,

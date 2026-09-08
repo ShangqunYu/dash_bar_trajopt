@@ -75,17 +75,17 @@
               <inertial pos="0.00295131 0.0808698 0.0449708" mass="3.34311" fullinertia="0.04511191 0.00569137 0.04676676 -0.001122 3.307e-05 0.00065703"/>
               <joint name="l_hip_pitch" axis="0 0 1" range="-1.5708 0.523599"/>
               <geom class="visual" name="l_upper_leg_visual" mesh="l_upper_leg"/>
-              <geom class="collision" name="l_upper_leg_collision" type="capsule" fromto="-0.00028855 0.00167298 0.0554535 0.00672276 0.27832 0.0427061" size="0.057534"/>
+              <geom class="collision" name="l_upper_leg_collision" type="capsule" fromto="-0.000461511 -0.00515159 0.055768 0.00689572 0.285145 0.0423916" size="0.0507"/>
               <body name="l_lower_leg" pos="0 0.28 0.0422" quat="1 0 0 0">
                 <inertial pos="0.0016025 0.0429705 0.00491034" mass="1.57667" fullinertia="0.01180651 0.00141361 0.0117471 -1.121e-05 -2.252e-05 0.00044613"/>
                 <joint name="l_knee_pitch" axis="0 0 1" range="0 2.61799"/>
                 <geom class="visual" name="l_lower_leg_visual" mesh="l_lower_leg"/>
-                <geom class="collision" name="l_lower_leg_collision" type="capsule" fromto="0.00070415 -0.0212004 0.00993366 -0.00107998 0.25426 -0.00184198" size="0.0451454"/>
+                <geom class="collision" name="l_lower_leg_collision" type="capsule" fromto="0.000740681 -0.0268405 0.0101748 -0.00111651 0.2599 -0.00208309" size="0.0395"/>
                 <body name="l_foot" pos="0 0.28 0" quat="1 0 0 0">
                   <inertial pos="-0.00177058 0.020091 -0.00482152" mass="0.342284" fullinertia="0.00014504 0.00067009 0.00068813 -1.178e-05 -1.731e-05 -3.14e-05"/>
                   <joint name="l_ankle_pitch" axis="0 0 1" range="-1.0472 1.0472"/>
                   <geom class="visual" name="l_foot_visual" mesh="l_foot"/>
-                  <geom class="collision" name="l_foot_collision" type="box" pos="0 0.0324256 -0.000951895" quat="0.737277 0.67559 0 0" size="0.0908742 0.0152428 0.0125"/>
+                  <geom class="collision" name="l_foot_collision" type="capsule" fromto="-0.0783742 0.0324256 -0.000951895 0.0783742 0.0324256 -0.000951895" size="0.0125"/>
                   <site name="l_foot" pos="0 0.0448781 -0.00204134"/>
                 </body>
               </body>
@@ -128,17 +128,17 @@
               <inertial pos="0.00295131 0.0808698 -0.0449708" mass="3.34311" fullinertia="0.04511191 0.00569137 0.04676676 -0.001122 -3.307e-05 -0.00065703"/>
               <joint name="r_hip_pitch" axis="0 0 1" range="-1.5708 0.523599"/>
               <geom class="visual" name="r_upper_leg_visual" mesh="r_upper_leg"/>
-              <geom class="collision" name="r_upper_leg_collision" type="capsule" fromto="-0.000287183 0.00172681 -0.0555527 0.00672141 0.278268 -0.0427844" size="0.0575912"/>
+              <geom class="collision" name="r_upper_leg_collision" type="capsule" fromto="-0.000448936 -0.00465554 -0.0558474 0.00688316 0.28465 -0.0424897" size="0.0512"/>
               <body name="r_lower_leg" pos="0 0.28 -0.0422" quat="1 0 0 0">
                 <inertial pos="0.0016025 0.0429705 -0.00491034" mass="1.57667" fullinertia="0.01180651 0.00141361 0.0117471 -1.121e-05 2.252e-05 -0.00044613"/>
                 <joint name="r_knee_pitch" axis="0 0 1" range="0 2.61799"/>
                 <geom class="visual" name="r_lower_leg_visual" mesh="r_lower_leg"/>
-                <geom class="collision" name="r_lower_leg_collision" type="capsule" fromto="0.00070415 -0.0212004 -0.00993366 -0.00107998 0.25426 0.00184198" size="0.0451454"/>
+                <geom class="collision" name="r_lower_leg_collision" type="capsule" fromto="0.000740681 -0.0268405 -0.0101748 -0.00111651 0.2599 0.00208309" size="0.0395"/>
                 <body name="r_foot" pos="0 0.28 0" quat="1 0 0 0">
                   <inertial pos="-0.00177058 0.020091 0.00482152" mass="0.342284" fullinertia="0.00014504 0.00067009 0.00068813 -1.178e-05 1.731e-05 3.14e-05"/>
                   <joint name="r_ankle_pitch" axis="0 0 1" range="-1.0472 1.0472"/>
                   <geom class="visual" name="r_foot_visual" mesh="r_foot"/>
-                  <geom class="collision" name="r_foot_collision" type="box" pos="0 0.0324257 0.000952307" quat="0.67559 0.737277 0 0" size="0.0908742 0.0152509 0.0125"/>
+                  <geom class="collision" name="r_foot_collision" type="capsule" fromto="-0.0783742 0.0324257 0.000952307 0.0783742 0.0324257 0.000952307" size="0.0125"/>
                   <site name="r_foot" pos="0 0.0448781 0.00204175"/>
                 </body>
               </body>
@@ -181,12 +181,13 @@
        the side of the body through a gap that is real but narrow. Sampling
        poses within +-0.35 rad of the nominal stance, these pairs report capsule
        penetrations up to 74 mm at poses where the actual meshes still clear by
-       3 to 47 mm -- every one is an artifact of wrapping two flat links in
+       3 to 47 mm  every one is an artifact of wrapping two flat links in
        round capsules, not interference. Thinning cannot fix it: the false
        penetration exceeds the true gap, and these colliders need honest radii
        because `illegal_contact` uses them to catch limbs hitting the ground.
        Left unexcluded, `self_collisions` (weight -1.0) would fire through most
        of the arm swing and train the policy to hold its arms still. -->
+
   <contact>
     <exclude body1="r_hip" body2="r_upper_leg"/>
     <exclude body1="l_hip" body2="l_upper_leg"/>
